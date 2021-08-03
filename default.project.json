@@ -1,0 +1,12 @@
+{
+  "name": "bloxyplot",
+  "tree": {
+    "$className": "DataModel",
+
+    "ServerStorage": {
+      "bloxyplot": {
+        "$path": "src"
+      }
+    }
+  }
+}
