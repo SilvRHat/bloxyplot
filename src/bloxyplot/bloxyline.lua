@@ -3,7 +3,7 @@
 
 -- Dev // SilvRHat
 -- Documentation //
--- GitHub //
+-- GitHub // https://github.com/SilvRHat/bloxyplot
 
 
 -- DEPENDENCIES //
@@ -57,6 +57,11 @@ end
 
 -- Public Functions
 function line:SetPoints(points)
+    self._points = points
+    renderLine(self)
+end
+
+function line:GetPoints(points)
 
 end
 

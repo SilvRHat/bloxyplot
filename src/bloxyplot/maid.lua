@@ -12,7 +12,8 @@ local DESTRUCTORS = {
         mark()
     end;
     ['RBXScriptConnection'] = function(mark)
-        mark:Disconnect()
+        if mark.Connected then
+            mark:Disconnect() end
     end;
     ['Instance'] = function(mark)
         mark:Destroy()
