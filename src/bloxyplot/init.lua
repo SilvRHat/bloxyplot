@@ -34,9 +34,9 @@ lineClass.__index = lineClass
 local line_attrs = {'Color', 'Emission', 'Transparency', 'LineWidth', 'StyleFormat', 'MarkerSize', 'Label', 'Visible'}
 local line_attr_defaults = {
     Color = Color3.new(1,1,1);
-    Emission = 1;
+    Emission = .1;
     Transparency = 0;
-    LineWidth = .2;
+    LineWidth = .5;
     StyleFormat = '-';
     MarkerSize = 1;
     Label = 'Line';
@@ -62,19 +62,25 @@ local line_attr_aliases = {     -- Short/ lowercase names of line attributes (on
 }
 local line_attr_update_func = {
     Color = function(line) 
-        print('update color') -- TODO
+        for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
+            beam.Color = ColorSequence.new(line.Color) end
     end;
     Emission = function(line) 
-        print('update emission') -- TODO
+        for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
+            beam.LightEmission = line.Emission end
     end;
     Transparency = function(line) 
-        print('update transparency') -- TODO
+        for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
+            beam.Transparency = NumberSequence.new(line.Transparency) end
     end;
     LineWidth = function(line) 
-        print('update linewidth') -- TODO
+        for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
+            beam.Width0 = line.LineWidth
+            beam.Width1 = line.LineWidth
+        end
     end;
     MarkerSize = function(line)
-        print('update markersize') -- TODO
+        -- TODO
     end;
 }
 local pt_class_get_funcs
@@ -154,6 +160,7 @@ function lineClass.new()
     self._attInstances = {}
     self._markerInstances = {}
 
+    self._instance_maid = maid.new()
     self._update_conn_maid = maid.new()
     self._update_funcs = {}
     
@@ -168,19 +175,12 @@ function lineClass.new()
             line_attr_update_func[attr](line) end
     end)
     chldRem_conn = instance.DescendantRemoving:Connect(function(desc) 
-        -- Check if descendent is related to a point (and if related pieces should be removed)
         local idx = table.find(self._attInstances, desc) or table.find(self._markerInstances, desc)
         if idx then
-            local att, marker = self._attInstances[idx], self._markerInstances[idx]
             table.remove(self._points, idx)
-            if att then
-                table.remove(self._attInstances, idx)
-                if att~=desc then att:Destroy() end
-            end
-            if marker then
-                table.remove(self._markerInstances, idx)
-                if marker~=desc then marker:Destroy() end
-            end
+            task.defer(function ()
+                line:SetPoints(self._points)
+            end)
         end
     end)
     self._maid:Mark(astry_conn)
@@ -228,9 +228,57 @@ end
 
 function lineClass:SetPoints(points)
     local newpoints = {}
+    for i, pt in ipairs(points) do
+        table.insert(newpoints, pt) end
+    self._points = newpoints
 
-    -- Fix points / marker
-    
+    -- Verify existing attachments are valid
+    do local i=1 while i<=#self._attInstances do
+        local att : Instance = self._attInstances[i]
+        if not att:IsDescendantOf(self.Instance) then
+            table.remove(self._attInstances, i)
+            self._instance_maid:Unmark(att)
+        else
+            i+=1
+        end
+    end end
+
+    -- Ensure appropriate amount of attachments
+    while (#newpoints ~= #self._attInstances) do
+        if #newpoints > #self._attInstances then    -- Instance new attachment
+            local newAtt = Instance.new('Attachment')
+            newAtt.Name = 'Pt Attachment'
+            newAtt.Parent = self.Attachments
+            self._instance_maid:Mark(newAtt)
+            table.insert(self._attInstances, newAtt)
+
+        elseif #newpoints < #self._attInstances then    -- Remove attachment
+            local att = self._attInstances[#self._attInstances]
+            self._instance_maid:Unmark(att)
+            table.remove(self._attInstances, table.find(self._attInstances, att))
+            att:Destroy()
+
+        end
+    end
+    while  #(self.Beams:GetChildren()) ~= math.max(0, #newpoints - 1) do
+        if #(self.Beams:GetChildren()) < #newpoints - 1 then
+            local beam : Beam = Instance.new('Beam')
+            beam.Color = ColorSequence.new(self.Color)
+            beam.LightEmission = self.Emission
+            beam.Width0 = self.LineWidth
+            beam.Width1 = self.LineWidth
+            beam.FaceCamera = true
+            beam.Transparency = NumberSequence.new(self.Transparency)
+            beam.LightInfluence=1
+            beam.Parent = self.Beams
+
+        elseif #self.Beams:GetChildren() > math.max(0, #newpoints - 1) then
+            local beam:Instance = self.Beams:FindFirstChildOfClass('Beam')
+            beam:Destroy()
+
+        end
+    end
+
     -- Reset connections
     self._update_conn_maid:Clean()
     self._update_funcs = {}
@@ -264,6 +312,10 @@ function lineClass:SetPoints(points)
         end
         att.WorldPosition = pt_class_get_funcs[typeof(pt)](pt)
     end
+    for i, beam:Beam in ipairs(self.Beams:GetChildren()) do
+       beam.Attachment0 = self._attInstances[i]
+       beam.Attachment1 = self._attInstances[i + 1]
+    end
 end
 
 
@@ -271,6 +323,7 @@ end
 function lineClass:Destroy()
     self._update_conn_maid:Clean()
     self._maid:Clean()
+    self._instance_maid:Clean()
 end
 
 -- parts of line

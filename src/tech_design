@@ -1,0 +1,34 @@
+
+Lines
+    Points
+        Allowed types :
+            Static: [Vector3, CFrame]
+            Dynamic: [Instance, Function]
+                Instances: [CFramveValue, Vector3Value, BasePart, Attachment, ]
+
+                Update on changed (CFrameValue,     Vector3Value)
+                Update on getpropertychanged(position)  basepart
+                Update on getpropertychanged(worldposition)     attachment
+                Update on heartbeat     function
+
+
+      Point Instances
+        Attachment
+            Create when setpoints is called. Hold a pool of attachment points and reassign on every setpoints.
+
+
+            On deleted : Call setpoints (delete point at index taken, setpoints will reassign attachments)
+        Marker
+
+
+    Attributes
+        Visible
+        Transparency
+        Emission
+        LineWidth
+        MarkerSize
+        Style
+        Color
+        Locked
+        Label
+        Magnitude (Read-only)
