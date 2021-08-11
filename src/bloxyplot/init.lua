@@ -20,14 +20,33 @@ local LINE_COLLECTION_TAG = 'bloxyplot_line_object'
 local LINE_CLASSNAME = 'bloxyplot_line_class'
 
 
--- SOURCE //
+-- STATE //
 local instance_luaobj_mapping = {}
 
 
+local function newColor(i)
+    local x = (i%3 + 1) * ((i^2) % 3 + 1)
+    local h, s, v
+    h = ((i * 323 + 200) % 255) / 255
+    s = (((x * 45) % 100) / 100)*.1 + .9;
+    v = (((x * 924) % 100) / 100)*.5 + .5;
+    return Color3.fromHSV(h,s,v)
+end
+
+local function newColorVariant(i)
+    local x = (i%3 + 1) * ((i^2) % 3 + 1)
+    local h, s, v
+    h = ((i * 500 + 200) % 255) / 255
+    s = (((x * 45) % 100) / 100)*.2 + .8;
+    v = (((x * 924) % 100) / 100)*.6 + .4;
+    return Color3.fromHSV(h,s,v)
+end
 
 
 
 --  LINE CLASS //
+local nsubplots = -1
+
 local lineClass = {}
 lineClass.__index = lineClass
 
@@ -42,6 +61,7 @@ local line_attr_defaults = {
     Label = 'Line';
     Visible = true;
 }
+
 local line_attr_aliases = {     -- Short/ lowercase names of line attributes (only used in plot function)
     [2] = 'StyleFormat'; -- 2nd arg
     [3] = 'Label';       -- 3rd arg
@@ -60,6 +80,7 @@ local line_attr_aliases = {     -- Short/ lowercase names of line attributes (on
     lw = 'LineWidth';
     ms = 'MarkerSize';
 }
+
 local line_attr_update_func = {
     Color = function(line) 
         for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
@@ -80,40 +101,94 @@ local line_attr_update_func = {
         end
     end;
     MarkerSize = function(line)
-        -- TODO
+        for _, marker in ipairs(line.Markers:GetChildren()) do
+            marker.Size = Vector3.new(1,1,1) * line.MarkerSize end
+    end;
+    StyleFormat = function (line)
+        line:formatStyle()
+        for _, marker in ipairs(line.Markers:GetChildren()) do
+            marker:GetFirstChildOfClass('SpecialMesh').MeshType = line._marker_mesh
+        end
+        for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
+            beam.Color = ColorSequence.new(line.Color)
+            beam.Texture = line._line_texture
+        end
     end;
 }
-local pt_class_get_funcs
-pt_class_get_funcs = {
+
+local pt_class_get_funcs; pt_class_get_funcs = {
     Vector3 = function(x) 
-        return x
+        return x, Vector3.new()
     end;
     CFrame = function(x)
-        return x.Position
+        local rx,ry,rz = x:ToEulerAnglesYXZ()
+        return x.Position, Vector3.new(math.deg(rx), math.deg(ry), math.deg(rz))
     end;
     Instance = function(x)
         if x:IsA('BasePart') then
-            return x.Position
+            return x.Position, x.Orientation
         elseif x:IsA('CFrameValue') then
-            return x.Value.Position
+            local rx,ry,rz = x.Value:ToEulerAnglesYXZ()
+            return x.Value.Position, Vector3.new(math.deg(rx), math.deg(ry), math.deg(rz))
         elseif x:IsA('Attachment') then
-            return x.WorldPosition
+            return x.WorldPosition, x.WorldOrientation
         elseif x:IsA('Vector3Value') then
-            return x.Value
+            return x.Value, Vector3.new()
         end
     end;
     ['function'] = function(x)
         local ret = x()
-        if typeof(x)=='function' then
+        if typeof(ret)=='function' then
             error('function cannot return type function') end
         return pt_class_get_funcs[typeof(ret)](ret)
     end;
 }
 
 
+-- Format line
+local marker_style = {
+    o = Enum.MeshType.Sphere;
+    x = Enum.MeshType.Brick;
+}
+local line_style = {
+    ['-'] = '';     -- Solid line
+    ['--'] = '';    -- Dashed line
+    [':'] = '';     -- Dotted line
+    ['-.'] = '';    -- Dash dotted line
+    [''] = ''; -- Empty
+}
+local color_shorthand = {
+    r = Color3.fromRGB(255, 0, 0);
+    o = Color3.fromRGB(255, 150, 0);
+    y = Color3.new(255, 255, 0);
+    g = Color3.fromRGB(50, 255, 95);
+    b = Color3.fromRGB(0, 0, 255);
+    p = Color3.fromRGB(150,0,255);
+}
+function lineClass:formatStyle()
+    local marker, line, color = string.match(
+        self.StyleFormat,
+        '([ox]?)([-.:]*)(%l*)'
+    )
+    if marker_style[marker] then
+        self._use_markers = true
+        self._marker_mesh = marker_style[marker] 
+    else
+        self._use_markers = false
+    end
+
+    if line_style[line] then
+        self._line_texture = line_style[line] end
+    
+    if color_shorthand[color] then
+        self._color_set = true
+        self.Color = color_shorthand[color] end
+end
 
 
-
+-- lineClass.new // Constructor for a new line object
+    -- @return - Returns a line class object which references both a table of methods 
+              -- and an instance with attributes describing line material and rendering options
 function lineClass.new() 
     local line = {}
     local instance = Instance.new('Folder')
@@ -137,19 +212,16 @@ function lineClass.new()
         attpart.Locked = true
         attpart.Size = Vector3.new(.05, .05, .05)
         attpart.Parent = instance
-        self._maid:Mark(attpart)
 
         -- To parent beam objects under
         local beams = Instance.new('Folder')
         beams.Name = 'Beams'
         beams.Parent = instance
-        self._maid:Mark(beams)
         
         -- To parent marker objects under
         local markers = Instance.new('Folder')
         markers.Name = 'Markers'
         markers.Parent = instance
-        self._maid:Mark(markers)
     end
 
 
@@ -158,27 +230,31 @@ function lineClass.new()
     self.Instance = instance
     self._points = {}
     self._attInstances = {}
-    self._markerInstances = {}
 
-    self._instance_maid = maid.new()
-    self._update_conn_maid = maid.new()
-    self._update_funcs = {}
-    
+    self._render = true         -- Internal variable for determining visibility based on heirarchy of objects with set Visible property
+    self._use_markers = false   -- Internal for if markers are used
+    self._line_texture = ''     -- Internal for texture on beam objects
+    self._marker_mesh = Enum.MeshType.Sphere
+    self._color_set = false
+
+    self._update_conn_maid = maid.new() -- Maid for cleaning up RBXScriptConnections which update line
+
+
     -- Connections
     local astry_conn, attr_conn, chldRem_conn: RBXScriptConnection
     astry_conn = instance.AncestryChanged:Connect(function (child, parent) 
         if child==instance and parent==nil and #instance:GetChildren()==0 then  -- Instance has been destroyed
-            self:Destroy() end
+            self:Destroy() end  -- Cleans up extra data held in lua-table component of object
     end)
     attr_conn = instance.AttributeChanged:Connect(function (attr) 
-        if line_attr_update_func[attr] then
-            line_attr_update_func[attr](line) end
+        if line_attr_update_func[attr] then         -- Propety changed (Color, Width, etc)
+            line_attr_update_func[attr](line) end   -- Update based on function
     end)
     chldRem_conn = instance.DescendantRemoving:Connect(function(desc) 
-        local idx = table.find(self._attInstances, desc) or table.find(self._markerInstances, desc)
-        if idx then
-            table.remove(self._points, idx)
-            task.defer(function ()
+        local isAttrIndex = table.find(self._attInstances, desc)
+        if isAttrIndex then
+            table.remove(self._points, isAttrIndex)
+            task.defer(function ()  -- Defer to next frame when instance is fully removed
                 line:SetPoints(self._points)
             end)
         end
@@ -192,9 +268,9 @@ function lineClass.new()
         -- Allow correct indexing to map to appropriate table (Class Methods) or instance (Attributes)
     setmetatable(line, {
         __newindex = function(tab, key, val)
-            if self[key] then
+            if self[key]~=nil then
                 self[key] = val
-            elseif instance:GetAttribute(key) then
+            elseif instance:GetAttribute(key)~=nil then
                 if not (type(val)==type(instance:GetAttribute(key))) then
                     error(  string.format('Expected type %s, got %s', type(val), type(instance:GetAttribute(key)))  )
                 end
@@ -204,9 +280,9 @@ function lineClass.new()
             end
         end;
         __index = function(tab, key)
-            if self[key] then
+            if self[key]~=nil then
                 return self[key]
-            elseif instance:GetAttribute(key) then
+            elseif instance:GetAttribute(key)~=nil then
                 return instance:GetAttribute(key)
             else
                 return instance[key]
@@ -233,33 +309,34 @@ function lineClass:SetPoints(points)
     self._points = newpoints
 
     -- Verify existing attachments are valid
-    do local i=1 while i<=#self._attInstances do
-        local att : Instance = self._attInstances[i]
-        if not att:IsDescendantOf(self.Instance) then
-            table.remove(self._attInstances, i)
-            self._instance_maid:Unmark(att)
-        else
-            i+=1
+    do local i = 1; while (i<=#self._attInstances) 
+        do
+            local att : Instance = self._attInstances[i]
+            if not att:IsDescendantOf(self.Instance) then
+                table.remove(self._attInstances, i)
+            else
+                i+=1
+            end
         end
-    end end
+    end
 
     -- Ensure appropriate amount of attachments
-    while (#newpoints ~= #self._attInstances) do
-        if #newpoints > #self._attInstances then    -- Instance new attachment
+    while (#self._points ~= #self._attInstances) do
+        if #self._points > #self._attInstances then    -- Instance new attachment
             local newAtt = Instance.new('Attachment')
             newAtt.Name = 'Pt Attachment'
             newAtt.Parent = self.Attachments
-            self._instance_maid:Mark(newAtt)
             table.insert(self._attInstances, newAtt)
 
         elseif #newpoints < #self._attInstances then    -- Remove attachment
             local att = self._attInstances[#self._attInstances]
-            self._instance_maid:Unmark(att)
             table.remove(self._attInstances, table.find(self._attInstances, att))
             att:Destroy()
 
         end
     end
+
+    -- Ensure appropriate amount of beams
     while  #(self.Beams:GetChildren()) ~= math.max(0, #newpoints - 1) do
         if #(self.Beams:GetChildren()) < #newpoints - 1 then
             local beam : Beam = Instance.new('Beam')
@@ -269,49 +346,81 @@ function lineClass:SetPoints(points)
             beam.Width1 = self.LineWidth
             beam.FaceCamera = true
             beam.Transparency = NumberSequence.new(self.Transparency)
-            beam.LightInfluence=1
+            beam.LightInfluence = 1
+            beam.Texture = self._line_texture
+            beam.TextureSpeed = 0
+            beam.Segments = 0
             beam.Parent = self.Beams
 
         elseif #self.Beams:GetChildren() > math.max(0, #newpoints - 1) then
-            local beam:Instance = self.Beams:FindFirstChildOfClass('Beam')
-            beam:Destroy()
+            self.Beams:FindFirstChildOfClass('Beam'):Destroy()
 
         end
     end
+
+    -- Ensure appropriate amount of markers
+    local markersNeeded = self._use_markers and #self._points or 0
+    
+    if markersNeeded==0 then
+        self.Markers:ClearAllChildren() end
+    while #(self.Markers:GetChildren()) ~= markersNeeded do
+        if #(self.Markers:GetChildren()) < markersNeeded then
+            local marker: Part = Instance.new('Part')
+            marker.Anchored = true
+            marker.CanCollide = false
+            marker.Material = Enum.Material.Neon
+            marker.Size = Vector3.new(1,1,1) * self.MarkerSize
+            marker.Color = self.Color
+            marker.Transparency = self.Transparency
+            marker.Parent = self.Markers
+
+            local mesh: SpecialMesh = Instance.new('SpecialMesh')
+            mesh.MeshType = self._marker_mesh
+            mesh.Parent = marker
+            
+        elseif #(self.Markers:GetChildren()) > markersNeeded then
+            self.Beams:FindFirstChildOfClass('BasePart'):Destroy()
+
+        end
+    end
+
 
     -- Reset connections
     self._update_conn_maid:Clean()
-    self._update_funcs = {}
-    
+
+    local function updateWorldPt(input, att, marker)
+        local pos, rot = pt_class_get_funcs[typeof(input)](input)
+        att.WorldPosition = pos
+        if marker then
+            marker.Position, marker.Orientation = pos, rot end
+    end
+
     -- loop through points; set new connections
-    for i, pt in ipairs(points) do
+    local markers = self.Markers:GetChildren()
+    for i, pt in ipairs(self._points) do
         local att = self._attInstances[i]
+        local marker = markers[i]
 
         if typeof(pt)=='function' then
-            if #self._update_funcs==0 then
-                local conn = runservice.Heartbeat:Connect(function () 
-                    for j, func in ipairs(self._update_funcs) do
-                        func()
-                    end
-                end)
-                self._update_conn_maid:Mark(conn)
-            end
-
-            table.insert(self._update_funcs, function() 
+            -- Connect function to heartbeat signal / update per frame
+            local conn = runservice.Heartbeat:Connect(function () 
                 local ret = pt()
                 if typeof(ret)=='function' then
                     error() end
-                att.WorldPosition = pt_class_get_funcs[typeof(ret)](ret)
-            end)
-
-        elseif typeof(pt)=='Instance' then
-            local conn = pt.Changed:Connect(function ()
-                att.WorldPosition = pt_class_get_funcs[typeof(pt)](pt)
+                updateWorldPt(ret, att, marker)
             end)
             self._update_conn_maid:Mark(conn)
+
+        elseif typeof(pt)=='Instance' then
+            local conn = pt.Changed:Connect(function () 
+                updateWorldPt(pt, att, marker) end)
+            self._update_conn_maid:Mark(conn)
+
         end
-        att.WorldPosition = pt_class_get_funcs[typeof(pt)](pt)
+        updateWorldPt(pt, att, marker)
     end
+
+    -- Correct beam attachments
     for i, beam:Beam in ipairs(self.Beams:GetChildren()) do
        beam.Attachment0 = self._attInstances[i]
        beam.Attachment1 = self._attInstances[i + 1]
@@ -321,26 +430,9 @@ end
 
 
 function lineClass:Destroy()
-    self._update_conn_maid:Clean()
-    self._maid:Clean()
-    self._instance_maid:Clean()
+    self._update_conn_maid:Clean()  -- Clear any update functions
+    self._maid:Clean()              -- Clear self
 end
-
--- parts of line
---[[
-    Attachments
-    Markers
-    Beams
-
-]]
-
--- Times to set up parts (when building)
--- Set up connections to update certain points as long as they exist
--- Set up a watch for removed children needed for connections - remove point 
-
-
-
-
 
 
 
@@ -389,6 +481,9 @@ function plotClass.new()
     self.Instance = instance
     self._children = {}
     self._maid = maid.new()
+
+    nsubplots+=1
+    self._plotid = nsubplots
 
     local astry_conn, chldAdd_conn, chldRem_conn : RBXScriptConnection
     astry_conn = instance.AncestryChanged:Connect(function (child, parent) 
@@ -457,8 +552,10 @@ end
     -- @param color (optional) - Specifies an initial color for the given subplot
     -- @return - Returns a new plotClass parented under the one this method was called on
 function plotClass:Subplot(label, color)
-    label = label or ''
-    color = color or Color3.new()   -- TODO: Choose new color
+    label = label or string.format('Subplot %d', self._plotid+2)
+    color = color or newColor(
+        (self._plotid*50) + #self:GetLines()
+    )
 
     local subplot = plotClass.new()
     subplot.Label = label
@@ -500,20 +597,19 @@ function plotClass:Plot(...)
         attrs[attr] = val
     end
 
+    -- Default label
+    attrs['Label'] = attrs['Label'] or string.format('Line %d', #self:GetLines())
 
-    -- Set default properties // TODO: Set attributes in line.new() func
-    for property, default in pairs(line_attr_defaults) do
-        if not attrs[property] then
-            attrs[property] = default end
-    end
-
-    -- TODO: Choose color and default label
-
-    
     -- Create line; Edit attributes; Return object
     local line = lineClass.new()
     for attr, val in pairs(attrs) do
         line[attr] = val end
+
+    -- Check if color not set
+    if not attrs['Color'] and not line._color_set then
+        line.Color = newColor(self._plotid*50 + #self:GetLines())
+    end
+    
     line:SetPoints(points)
     line.Name = string.format('Line %s', line.Label)
     line.Parent = self.Instance

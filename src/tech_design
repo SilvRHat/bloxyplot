@@ -16,10 +16,8 @@ Lines
         Attachment
             Create when setpoints is called. Hold a pool of attachment points and reassign on every setpoints.
 
-
             On deleted : Call setpoints (delete point at index taken, setpoints will reassign attachments)
         Marker
-
 
     Attributes
         Visible
@@ -32,3 +30,13 @@ Lines
         Locked
         Label
         Magnitude (Read-only)
+
+        Format (h)
+
+----------->
+    Splitball
+
+    Need string formatr - Changes states like texture, marker, color, 
+    Need to clean up instancing code - do not track markers, only Attributes
+
+    
