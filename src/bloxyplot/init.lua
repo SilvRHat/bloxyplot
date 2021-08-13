@@ -1,8 +1,9 @@
--- Bloxy Plot
+-- Bloxy Plot Library
 -- A 3D Plotting tool for Roblox Development
+-- Version 1.0.3 (STAGE: In development)
 
 -- Dev // SilvRHat
--- Documentation // 
+-- Documentation // https://github.com/SilvRHat/bloxyplot/docs
 -- GitHub // https://github.com/SilvRHat/bloxyplot
 
 
@@ -10,7 +11,7 @@
 local collectionservice = game:GetService('CollectionService')
 local runservice = game:GetService('RunService')
 
-local maid = require(script.maid)
+local maid = require(script.maid)   -- An organized class deconstructor coding pattern utility
 
 
 -- CONST //
@@ -18,12 +19,14 @@ local PLOT_COLLECTION_TAG = 'bloxyplot_plot_object'
 local PLOT_CLASSNAME = 'bloxyplot_plot_class'
 local LINE_COLLECTION_TAG = 'bloxyplot_line_object'
 local LINE_CLASSNAME = 'bloxyplot_line_class'
+local TEXTURE_MULT = 4 -- Determines a constant to apply to texture length
 
 
 -- STATE //
 local instance_luaobj_mapping = {}
 
 
+-- UTILITY //
 local function newColor(i)
     local x = (i%3 + 1) * ((i^2) % 3 + 1)
     local h, s, v
@@ -53,9 +56,9 @@ lineClass.__index = lineClass
 local line_attrs = {'Color', 'Emission', 'Transparency', 'LineWidth', 'StyleFormat', 'MarkerSize', 'Label', 'Visible'}
 local line_attr_defaults = {
     Color = Color3.new(1,1,1);
-    Emission = .1;
+    Emission = .5;
     Transparency = 0;
-    LineWidth = .5;
+    LineWidth = .3;
     StyleFormat = '-';
     MarkerSize = 1;
     Label = 'Line';
@@ -98,6 +101,7 @@ local line_attr_update_func = {
         for _, beam : Beam in ipairs(line.Beams:GetChildren()) do
             beam.Width0 = line.LineWidth
             beam.Width1 = line.LineWidth
+            beam.TextureLength = TEXTURE_MULT * line.LineWidth
         end
     end;
     MarkerSize = function(line)
@@ -144,18 +148,17 @@ local pt_class_get_funcs; pt_class_get_funcs = {
     end;
 }
 
-
--- Format line
+-- Line format Settings
 local marker_style = {
     o = Enum.MeshType.Sphere;
     x = Enum.MeshType.Brick;
 }
-local line_style = {
+local line_style_texture = {
     ['-'] = '';     -- Solid line
-    ['--'] = '';    -- Dashed line
-    [':'] = '';     -- Dotted line
-    ['-.'] = '';    -- Dash dotted line
-    [''] = ''; -- Empty
+    ['--'] = 'rbxassetid://7236699727';    -- Dashed line
+    [':'] = 'rbxassetid://7236781375';     -- Dotted line
+    ['-.'] = 'rbxassetid://7236747624';    -- Dash dotted line
+    [''] = 'rbxassetid://7236603826'; -- Empty
 }
 local color_shorthand = {
     r = Color3.fromRGB(255, 0, 0);
@@ -165,25 +168,8 @@ local color_shorthand = {
     b = Color3.fromRGB(0, 0, 255);
     p = Color3.fromRGB(150,0,255);
 }
-function lineClass:formatStyle()
-    local marker, line, color = string.match(
-        self.StyleFormat,
-        '([ox]?)([-.:]*)(%l*)'
-    )
-    if marker_style[marker] then
-        self._use_markers = true
-        self._marker_mesh = marker_style[marker] 
-    else
-        self._use_markers = false
-    end
 
-    if line_style[line] then
-        self._line_texture = line_style[line] end
-    
-    if color_shorthand[color] then
-        self._color_set = true
-        self.Color = color_shorthand[color] end
-end
+
 
 
 -- lineClass.new // Constructor for a new line object
@@ -234,6 +220,7 @@ function lineClass.new()
     self._render = true         -- Internal variable for determining visibility based on heirarchy of objects with set Visible property
     self._use_markers = false   -- Internal for if markers are used
     self._line_texture = ''     -- Internal for texture on beam objects
+
     self._marker_mesh = Enum.MeshType.Sphere
     self._color_set = false
 
@@ -350,6 +337,8 @@ function lineClass:SetPoints(points)
             beam.Texture = self._line_texture
             beam.TextureSpeed = 0
             beam.Segments = 0
+            beam.TextureMode = Enum.TextureMode.Static
+            beam.TextureLength = TEXTURE_MULT * self.LineWidth
             beam.Parent = self.Beams
 
         elseif #self.Beams:GetChildren() > math.max(0, #newpoints - 1) then
@@ -425,6 +414,27 @@ function lineClass:SetPoints(points)
        beam.Attachment0 = self._attInstances[i]
        beam.Attachment1 = self._attInstances[i + 1]
     end
+end
+
+
+function lineClass:formatStyle()
+    local marker, line, color = string.match(
+        self.StyleFormat,
+        '([ox]?)([-.:]*)(%l*)'
+    )
+    if marker_style[marker] then
+        self._use_markers = true
+        self._marker_mesh = marker_style[marker] 
+    else
+        self._use_markers = false
+    end
+
+    if line_style_texture[line] then
+        self._line_texture = line_style_texture[line] end
+    
+    if color_shorthand[color] then
+        self._color_set = true
+        self.Color = color_shorthand[color] end
 end
 
 
