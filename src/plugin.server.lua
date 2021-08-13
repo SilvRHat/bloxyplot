@@ -3,7 +3,7 @@
 -- Version 1.0.3 (STAGE: In development)
 
 -- Dev // SilvRHat
--- Documentation // https://github.com/SilvRHat/bloxyplot/docs
+-- Documentation // https://silvrhat.github.io/bloxyplot/
 -- GitHub // https://github.com/SilvRHat/bloxyplot
 
 
